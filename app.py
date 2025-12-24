@@ -2,62 +2,53 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import joblib
-import re
-import os
 
 # ---------------- App Setup ----------------
-app = FastAPI(title="AI SQL Injection Firewall API")
+app = FastAPI(title="SQL Injection Detection API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # GitHub Pages + public access
-    allow_credentials=True,
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ---------------- Load ML Model ----------------
+# ---------------- Load Model & Vectorizer ----------------
 model = joblib.load("sqli_rf_model.pkl")
+vectorizer = joblib.load("sqli_tfidf_vectorizer.pkl")
 
 # ---------------- Request Schema ----------------
 class SQLInput(BaseModel):
     text: str
 
-# ---------------- Feature Engineering ----------------
-def extract_features(text: str):
-    return [
-        len(text),
-        int(bool(re.search(r"('|--|;|/\*|\*/)", text))),
-        int(bool(re.search(r"\b(select|union|drop|insert|delete|update)\b", text.lower())))
-    ]
-
-# ---------------- Prediction Endpoint ----------------
+# ---------------- API Endpoint ----------------
 @app.post("/predict_sqli")
 def predict_sqli(data: SQLInput):
-    features = [extract_features(data.text)]
-    prediction = model.predict(features)[0]
+    try:
+        X = vectorizer.transform([data.text])
+        prediction = model.predict(X)[0]
 
-    if prediction == 1:
+        if int(prediction) == 1:
+            raise HTTPException(
+                status_code=403,
+                detail="Blocked: SQL Injection detected"
+            )
+
+        return {
+            "status": "allowed",
+            "message": "Input is safe"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("MODEL ERROR:", e)
         raise HTTPException(
-            status_code=403,
-            detail="SQL Injection detected"
+            status_code=500,
+            detail="Model processing error"
         )
-
-    return {
-        "allowed": True,
-        "message": "Input is safe"
-    }
 
 # ---------------- Health Check ----------------
 @app.get("/")
 def health():
     return {"status": "API running"}
-
-# ---------------- Railway Entry ----------------
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(
-        "app:app",
-        host="0.0.0.0",
-        port=int(os.environ.get("PORT", 8000))
-    )
