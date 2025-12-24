@@ -33,30 +33,20 @@ def extract_features(text: str):
 
 # ---------------- Prediction Endpoint ----------------
 @app.post("/predict_sqli")
-def analyze_input(data: SQLInput):
-    text = data.text.lower()
-
-    # 🔥 hard rule for classic SQLi
-    if re.search(r"\bor\b\s+1\s*=\s*1", text):
-        raise HTTPException(
-            status_code=403,
-            detail="Blocked: Boolean-based SQL Injection detected"
-        )
-
+def predict_sqli(data: SQLInput):
     features = [extract_features(data.text)]
     prediction = model.predict(features)[0]
 
     if prediction == 1:
         raise HTTPException(
             status_code=403,
-            detail="Blocked: SQL Injection detected by ML"
+            detail="SQL Injection detected"
         )
 
     return {
-        "status": "allowed",
+        "allowed": True,
         "message": "Input is safe"
     }
-
 
 # ---------------- Health Check ----------------
 @app.get("/")
